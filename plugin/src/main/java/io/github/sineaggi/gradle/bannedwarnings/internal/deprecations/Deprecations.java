@@ -15,7 +15,7 @@ import org.gradle.internal.operations.BuildOperationListenerManager;
  * can't be serialized. So the settings plugin stores it here whenever the build is configured, and a
  * configuration cache hit, where the settings plugin doesn't run, reuses it. The manager lives as long as the
  * daemon, and Gradle reuses this plugin's class loader between builds of the same project, so it is there on
- * every cache hit except the first build of a fresh daemon.
+ * every cache hit except the first build of a fresh daemon. That one falls back to {@link ManagerLocator}.
  */
 public final class Deprecations {
 
@@ -33,12 +33,17 @@ public final class Deprecations {
     public static boolean startListening(String rootDir, String userHome) {
         BuildOperationListenerManager manager = MANAGER.get();
         if (manager == null) {
-            return false;
+            manager = ManagerLocator.find();
+            if (manager == null) {
+                return false;
+            }
+            MANAGER.compareAndSet(null, manager);
         }
+        BuildOperationListenerManager listenerManager = manager;
         COLLECTORS.computeIfAbsent(rootDir, dir -> {
             CheckSettings paths = new CheckSettings(List.of(), dir, userHome, "", false);
             DeprecationCollector collector = new DeprecationCollector(paths::relativize);
-            manager.addListener(collector);
+            listenerManager.addListener(collector);
             return collector;
         });
         return true;

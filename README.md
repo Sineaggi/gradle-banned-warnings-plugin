@@ -75,9 +75,11 @@ finishes. `gradleDeprecations { gradleDeprecation = "regex" }` narrows the rule 
 
 This relies on Gradle internals: the build operation events Gradle keeps stable for Develocity
 (`org.gradle.operations.*`), plus Gradle's build operation listener manager. Plugins can't reach that manager
-from a build service, so on a configuration cache hit the plugin reuses the one the daemon saw when the build
-was last configured. On a cache hit in a fresh daemon, it can't do that and prints a warning that task-action
-deprecations were not checked. Configuration-time deprecations are unaffected, since a cache hit doesn't run
+from a build service. On a configuration cache hit, where the settings plugin doesn't run, the plugin reuses the
+manager the daemon saw when it last configured the build. In a fresh daemon, it finds the manager by reflection
+through Gradle's static deprecation logger, which Gradle hands the current build's event emitter. If a Gradle
+version changes those private fields, the plugin prints a warning that task-action deprecations were not
+checked, rather than failing. Configuration-time deprecations are unaffected, since a cache hit doesn't run
 configuration.
 
 An included build, such as `build-logic`, has its own settings: apply the plugin there too to check its

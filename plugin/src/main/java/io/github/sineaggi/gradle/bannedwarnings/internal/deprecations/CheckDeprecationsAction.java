@@ -34,8 +34,9 @@ public abstract class CheckDeprecationsAction implements FlowAction<CheckDepreca
             }
             if (!listening) {
                 Logging.getLogger(CheckDeprecationsAction.class).warn(
-                        "banned-warnings: Gradle deprecations from task actions were not checked in this build. On a configuration"
-                                + " cache hit the check needs a Gradle daemon that has configured this build before.");
+                        "banned-warnings: Gradle deprecations from task actions were not checked in this build: on this configuration"
+                                + " cache hit, the plugin couldn't find Gradle's build operation listener manager. This Gradle version"
+                                + " may have changed the internals the plugin relies on.");
                 return;
             }
             DeprecationCheck.check("task execution", Deprecations.drain(rootDir), parameters.getSettings().get(), false);

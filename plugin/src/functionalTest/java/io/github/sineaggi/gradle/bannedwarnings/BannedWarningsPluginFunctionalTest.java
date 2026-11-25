@@ -10,6 +10,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 import org.gradle.testkit.runner.BuildResult;
 import org.gradle.testkit.runner.GradleRunner;
@@ -390,6 +391,21 @@ class BannedWarningsPluginFunctionalTest {
         BuildResult second = runner("late", "--warning-mode=all").buildAndFail();
         assertTrue(second.getOutput().contains("Configuration cache entry reused."), second.getOutput());
         assertTrue(second.getOutput().contains("[gradle-deprecations] class LateDeprecationPlugin: Calling the late API"), second.getOutput());
+    }
+
+    @Test
+    void failsOnGradleDeprecationInTaskActionOnConfigurationCacheHitInFreshDaemon() throws IOException {
+        settings("gradleDeprecations()", "includeBuild(\"plugins\")\n");
+        deprecatedPlugins();
+        write("build.gradle.kts", "plugins { id(\"my.late-deprecation\") }\n");
+        runner("late", "--warning-mode=all").buildAndFail();
+
+        // Daemon JVM arguments no running daemon has, so Gradle starts a new daemon, which has never configured this build.
+        write("gradle.properties", "org.gradle.jvmargs=-Xmx512m -Dbanned-warnings.test.daemon=" + UUID.randomUUID() + "\n");
+        BuildResult result = runner("late", "--warning-mode=all").buildAndFail();
+        assertTrue(result.getOutput().contains("Configuration cache entry reused."), result.getOutput());
+        assertTrue(result.getOutput().contains("[gradle-deprecations] class LateDeprecationPlugin: Calling the late API"), result.getOutput());
+        assertFalse(result.getOutput().contains("were not checked"), result.getOutput());
     }
 
     @Test
