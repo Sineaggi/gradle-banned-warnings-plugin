@@ -1,0 +1,4 @@
+[versions]
+junit = "6.1.0"
+# Kotlin Gradle plugin used by the functional tests' sample builds.
+kotlin = "2.4.21"
