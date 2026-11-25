@@ -34,6 +34,14 @@ public interface BannedWarning extends Named {
     /** Regular expression searched for in each non-comment line of {@code *.gradle.kts} scripts. */
     Property<String> getBuildScriptPattern();
 
+    /**
+     * Regular expression searched for in the name and message of each Gradle deprecation reported while the build
+     * runs, whether it comes from a build script, an applied plugin or a task action. Use {@code ".*"} to ban all.
+     *
+     * <p>Relies on Gradle's internal build operation events (the contract Gradle keeps for Develocity).
+     */
+    Property<String> getGradleDeprecation();
+
     /** Explanation shown when the rule is broken, for example how to fix the code. */
     Property<String> getReason();
 

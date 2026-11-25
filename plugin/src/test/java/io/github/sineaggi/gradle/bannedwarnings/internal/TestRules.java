@@ -17,6 +17,7 @@ final class TestRules {
                         + "|\\bby\\s+(?:[\\w.]+\\.)?extra\\b"
                         + "|:\\s*[\\w.<>?, ]+?\\s+by\\s+(?:project|settings)\\b",
                 null,
+                null,
                 false);
     }
 }

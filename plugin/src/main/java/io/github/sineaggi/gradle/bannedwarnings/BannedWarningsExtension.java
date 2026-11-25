@@ -8,6 +8,9 @@ import org.gradle.api.provider.Property;
 /** The {@code bannedWarnings} settings extension. */
 public abstract class BannedWarningsExtension {
 
+    /** Rule id of {@link #gradleDeprecations()}. */
+    public static final String GRADLE_DEPRECATIONS = "gradle-deprecations";
+
     /** Rule id of {@link #kotlinDslDelegatedProperties()}. */
     public static final String KOTLIN_DSL_DELEGATED_PROPERTIES = "kotlin-dsl-delegated-properties";
 
@@ -57,6 +60,25 @@ public abstract class BannedWarningsExtension {
             rule.getReason().set("Kotlin DSL property delegates are deprecated in Gradle 9.6 and removed in Gradle 10."
                     + " Use 'val foo = tasks.register(\"foo\") { }', named(), getByName(), create() or extra.set() instead."
                     + " See https://docs.gradle.org/current/userguide/upgrading_version_9.html#kotlin_dsl_delegated_properties");
+            action.execute(rule);
+        });
+    }
+
+    /**
+     * Bans every Gradle deprecation reported while the build runs, from build scripts, plugins and task actions.
+     * Record the existing ones with a baseline. Each baseline entry is a deprecation and its source: the plugin
+     * id, the script, or for task actions the class that called the deprecated API.
+     */
+    public void gradleDeprecations() {
+        gradleDeprecations(rule -> { });
+    }
+
+    /** Like {@link #gradleDeprecations()}, with further configuration of the rule, such as a narrower pattern. */
+    public void gradleDeprecations(Action<? super BannedWarning> action) {
+        ban(GRADLE_DEPRECATIONS, rule -> {
+            rule.getGradleDeprecation().set(".*");
+            rule.getReason().set("Gradle deprecations stop working in the next major Gradle version. Fix the call,"
+                    + " or upgrade the plugin that makes it.");
             action.execute(rule);
         });
     }

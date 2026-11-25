@@ -10,6 +10,7 @@ It checks three places:
 | Kotlin compile tasks (`compileKotlin`, precompiled script plugins in `build-logic`/`buildSrc`, ...) | Reads the compiler's warnings from the task output, matched by Kotlin diagnostic name and/or message |
 | Java compile tasks | Reads javac's warnings, matched by `-Xlint` category and/or message |
 | `*.gradle.kts` build, settings and init scripts, and scripts they apply with `apply(from = ...)` | Scans the script source, because Gradle compiles scripts itself and plugins can't see that compiler's output |
+| Gradle's own deprecation warnings, from scripts, plugins and task actions | Listens to Gradle's internal build operation events (see [Gradle deprecations](#gradle-deprecations)) |
 
 Works with the configuration cache and isolated projects. The functional tests run Gradle 9.9.2 with both turned
 on and `--warning-mode=fail`, and the repository itself builds with Gradle 9.9.2 with both turned on.
@@ -53,6 +54,32 @@ A rule can set:
 
 A compiler warning breaks a rule when every compiler criterion the rule sets matches it.
 
+## Gradle deprecations
+
+```kotlin
+bannedWarnings {
+    gradleDeprecations()
+}
+```
+
+bans every deprecation Gradle reports, whoever triggers it: a build script, a plugin you apply, or a task action.
+That covers deprecations that `--warning-mode=fail` would catch, but with a baseline, so you can adopt it before
+the last deprecation is gone. Each one is attributed to a source:
+
+- `plugin <id>`: inside the application of a (non-Gradle) plugin, including precompiled script plugins
+- `script <path>`: in a build, settings, init or applied script
+- `class <name>`: in a task action, named by the first class outside Gradle that made the call
+
+Configuration-time deprecations fail the build before any task runs. Execution-time ones fail it when the build
+finishes. `gradleDeprecations { gradleDeprecation = "regex" }` narrows the rule to matching deprecations.
+
+This relies on Gradle internals: the build operation events Gradle keeps stable for Develocity
+(`org.gradle.operations.*`), plus Gradle's build operation listener manager. Plugins can't reach that manager
+from a build service, so on a configuration cache hit the plugin reuses the one the daemon saw when the build
+was last configured. On a cache hit in a fresh daemon, it can't do that and prints a warning that task-action
+deprecations were not checked. Configuration-time deprecations are unaffected, since a cache hit doesn't run
+configuration.
+
 An included build, such as `build-logic`, has its own settings: apply the plugin there too to check its
 precompiled script plugins.
 
@@ -68,9 +95,13 @@ then on a file may contain as many offending lines per rule as the baseline list
 the last occurrence and updating again removes the file.
 
 ```
-# <rule>	<file relative to the build root>	<line count>
+# <rule>	<file relative to the build root, or deprecation source>	<count>
 kotlin-dsl-delegated-properties	build.gradle.kts	3
+gradle-deprecations	plugin com.example.legacy: Invocation of Task.project at execution time	1
 ```
+
+For Gradle deprecations, the update records what the build you run reports, so run it with the tasks your CI
+runs.
 
 ## Limitations
 
