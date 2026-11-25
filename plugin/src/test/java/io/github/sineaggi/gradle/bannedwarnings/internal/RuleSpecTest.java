@@ -27,7 +27,7 @@ class RuleSpecTest {
 
     @Test
     void javacLintRule() {
-        RuleSpec rule = new RuleSpec("removal", null, null, "removal", null, null, false);
+        RuleSpec rule = new RuleSpec("removal", null, null, "removal", null, null, null, false);
         assertTrue(rule.matches(new CompilerWarning("/A.java", 1, "removal", "x has been deprecated and marked for removal"), CompilerKind.JAVA));
         assertFalse(rule.matches(new CompilerWarning("/A.java", 1, "deprecation", "x has been deprecated"), CompilerKind.JAVA));
         assertFalse(rule.matches(new CompilerWarning("/A.kt", 1, "removal", "x"), CompilerKind.KOTLIN));

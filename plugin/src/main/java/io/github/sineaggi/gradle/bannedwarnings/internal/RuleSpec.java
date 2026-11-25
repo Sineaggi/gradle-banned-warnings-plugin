@@ -10,6 +10,7 @@ public record RuleSpec(
         String kotlinDiagnostic,
         String javacLint,
         String buildScriptPattern,
+        String gradleDeprecation,
         String reason,
         boolean failInCompiler
 ) implements Serializable {
@@ -20,6 +21,9 @@ public record RuleSpec(
         }
         if (buildScriptPattern != null) {
             Pattern.compile(buildScriptPattern);
+        }
+        if (gradleDeprecation != null) {
+            Pattern.compile(gradleDeprecation);
         }
         if (failInCompiler && kotlinDiagnostic == null) {
             throw new IllegalArgumentException("Banned warning '" + id + "' sets failInCompiler but no kotlinDiagnostic");

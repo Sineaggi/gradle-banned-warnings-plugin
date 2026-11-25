@@ -10,6 +10,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 import org.gradle.testkit.runner.BuildResult;
 import org.gradle.testkit.runner.GradleRunner;
@@ -302,5 +303,129 @@ class BannedWarningsPluginFunctionalTest {
 
         assertTrue(result.getOutput().contains("Banned warnings found in init script init.gradle.kts"), result.getOutput());
         assertTrue(result.getOutput().contains("[kotlin-dsl-delegated-properties] init.gradle.kts:2: val foo by project.tasks.registering"), result.getOutput());
+    }
+
+    /** An included build with a precompiled script plugin and a Java-style plugin that use deprecated Gradle APIs. */
+    private void deprecatedPlugins() throws IOException {
+        write("plugins/settings.gradle.kts", """
+                pluginManagement {
+                    repositories {
+                        %s
+                        gradlePluginPortal()
+                    }
+                }
+                dependencyResolutionManagement {
+                    repositories {
+                        %s
+                        gradlePluginPortal()
+                    }
+                }
+                """.formatted(repositories(), repositories()));
+        write("plugins/build.gradle.kts", """
+                plugins { `kotlin-dsl` }
+                gradlePlugin {
+                    plugins {
+                        register("late") {
+                            id = "my.late-deprecation"
+                            implementationClass = "LateDeprecationPlugin"
+                        }
+                    }
+                }
+                """);
+        // Deprecated at configuration time, inside the plugin.
+        write("plugins/src/main/kotlin/my-convention.gradle.kts", "val foo by tasks.registering\n");
+        // Deprecated at execution time, inside a task action.
+        write("plugins/src/main/kotlin/LateDeprecationPlugin.kt", """
+                import org.gradle.api.Plugin
+                import org.gradle.api.Project
+
+                class LateDeprecationPlugin : Plugin<Project> {
+                    override fun apply(project: Project) {
+                        project.tasks.register("late") {
+                            // Stands in for a plugin calling a deprecated Gradle API from a task action.
+                            doLast {
+                                org.gradle.internal.deprecation.DeprecationLogger.deprecate("Calling the late API")
+                                    .willBeRemovedInGradle11().undocumented().nagUser()
+                            }
+                        }
+                    }
+                }
+                """);
+    }
+
+    @Test
+    void failsOnGradleDeprecationFromBuildScript() throws IOException {
+        settings("gradleDeprecations()", "");
+        write("build.gradle.kts", "val foo by tasks.registering\n");
+
+        BuildResult result = runner("help", "--warning-mode=all").buildAndFail();
+
+        assertTrue(result.getOutput().contains("Banned Gradle deprecations reported during configuration"), result.getOutput());
+        assertTrue(result.getOutput().contains("[gradle-deprecations] script build.gradle.kts: The 'val name by registering' property delegate syntax"), result.getOutput());
+        // A configuration cache entry can't hide it: the next build fails the same way.
+        BuildResult again = runner("help", "--warning-mode=all").buildAndFail();
+        assertTrue(again.getOutput().contains("[gradle-deprecations] script build.gradle.kts: The 'val name by registering' property delegate syntax"), again.getOutput());
+    }
+
+    @Test
+    void failsOnGradleDeprecationFromPlugin() throws IOException {
+        settings("gradleDeprecations()", "includeBuild(\"plugins\")\n");
+        deprecatedPlugins();
+        write("build.gradle.kts", "plugins { id(\"my-convention\") }\n");
+
+        BuildResult result = runner("help", "--warning-mode=all").buildAndFail();
+
+        assertTrue(result.getOutput().contains("[gradle-deprecations] plugin my-convention: The 'val name by registering' property delegate syntax"), result.getOutput());
+    }
+
+    @Test
+    void failsOnGradleDeprecationInTaskActionEvenOnConfigurationCacheHit() throws IOException {
+        settings("gradleDeprecations()", "includeBuild(\"plugins\")\n");
+        deprecatedPlugins();
+        write("build.gradle.kts", "plugins { id(\"my.late-deprecation\") }\n");
+
+        BuildResult first = runner("late", "--warning-mode=all").buildAndFail();
+        assertTrue(first.getOutput().contains("Banned Gradle deprecations reported during task execution"), first.getOutput());
+        assertTrue(first.getOutput().contains("[gradle-deprecations] class LateDeprecationPlugin: Calling the late API"), first.getOutput());
+
+        BuildResult second = runner("late", "--warning-mode=all").buildAndFail();
+        assertTrue(second.getOutput().contains("Configuration cache entry reused."), second.getOutput());
+        assertTrue(second.getOutput().contains("[gradle-deprecations] class LateDeprecationPlugin: Calling the late API"), second.getOutput());
+    }
+
+    @Test
+    void failsOnGradleDeprecationInTaskActionOnConfigurationCacheHitInFreshDaemon() throws IOException {
+        settings("gradleDeprecations()", "includeBuild(\"plugins\")\n");
+        deprecatedPlugins();
+        write("build.gradle.kts", "plugins { id(\"my.late-deprecation\") }\n");
+        runner("late", "--warning-mode=all").buildAndFail();
+
+        // Daemon JVM arguments no running daemon has, so Gradle starts a new daemon, which has never configured this build.
+        write("gradle.properties", "org.gradle.jvmargs=-Xmx512m -Dbanned-warnings.test.daemon=" + UUID.randomUUID() + "\n");
+        BuildResult result = runner("late", "--warning-mode=all").buildAndFail();
+        assertTrue(result.getOutput().contains("Configuration cache entry reused."), result.getOutput());
+        assertTrue(result.getOutput().contains("[gradle-deprecations] class LateDeprecationPlugin: Calling the late API"), result.getOutput());
+        assertFalse(result.getOutput().contains("were not checked"), result.getOutput());
+    }
+
+    @Test
+    void gradleDeprecationBaseline() throws IOException {
+        settings("gradleDeprecations()", "includeBuild(\"plugins\")\n");
+        deprecatedPlugins();
+        write("build.gradle.kts", "plugins { id(\"my.late-deprecation\") }\nval foo by tasks.registering\n");
+
+        runner("late", "-PbannedWarnings.updateBaseline", "--warning-mode=all").build();
+        String baseline = Files.readString(projectDir.resolve("banned-warnings-baseline.txt"));
+        assertTrue(baseline.contains("gradle-deprecations\tscript build.gradle.kts: The 'val name by registering' property delegate syntax\t1"), baseline);
+        assertTrue(baseline.contains("gradle-deprecations\tclass LateDeprecationPlugin: Calling the late API\t1"), baseline);
+
+        runner("late", "--warning-mode=all").build();
+        BuildResult reused = runner("late", "--warning-mode=all").build();
+        assertTrue(reused.getOutput().contains("Configuration cache entry reused."), reused.getOutput());
+
+        // A new deprecation in the same script fails.
+        write("build.gradle.kts", "plugins { id(\"my.late-deprecation\") }\nval foo by tasks.registering\nval bar by tasks.creating\n");
+        BuildResult result = runner("late", "--warning-mode=all").buildAndFail();
+        assertTrue(result.getOutput().contains("[gradle-deprecations] script build.gradle.kts: The 'val name by creating' property delegate syntax"), result.getOutput());
     }
 }
