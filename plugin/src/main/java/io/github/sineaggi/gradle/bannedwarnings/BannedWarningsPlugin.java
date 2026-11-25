@@ -51,12 +51,19 @@ public abstract class BannedWarningsPlugin implements Plugin<Settings> {
         CheckSettings check = new CheckSettings(
                 List.copyOf(rules),
                 settings.getRootDir().getAbsolutePath(),
+                getProviders().systemProperty("user.home").getOrNull(),
                 extension.getBaseline().get().getAsFile().getAbsolutePath(),
                 extension.getUpdateBaseline().get());
 
+        for (File initScript : settings.getGradle().getStartParameter().getAllInitScripts()) {
+            if (initScript.getName().endsWith(".kts")) {
+                ConfigureProject.checkScript(getProviders(), check, initScript, initScript.getAbsoluteFile().getParentFile(),
+                        "init script " + check.relativize(initScript.getAbsolutePath()));
+            }
+        }
         File settingsScript = settings.getBuildscript().getSourceFile();
         if (settingsScript != null && settingsScript.getName().endsWith(".kts")) {
-            ConfigureProject.checkScript(getProviders(), check, settingsScript, "settings script");
+            ConfigureProject.checkScript(getProviders(), check, settingsScript, settings.getSettingsDir(), "settings script");
         }
         settings.getGradle().getLifecycle().beforeProject(new ConfigureProject(check));
     }

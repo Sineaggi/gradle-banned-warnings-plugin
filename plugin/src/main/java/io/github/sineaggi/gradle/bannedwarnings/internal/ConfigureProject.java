@@ -4,8 +4,12 @@ import java.io.File;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.gradle.api.GradleException;
 import org.gradle.api.IsolatedAction;
@@ -30,7 +34,7 @@ public final class ConfigureProject implements IsolatedAction<Project> {
     public void execute(Project project) {
         File buildFile = project.getBuildFile();
         if (buildFile.getName().endsWith(".kts")) {
-            checkScript(project.getProviders(), settings, buildFile, "build script of " + project.getDisplayName());
+            checkScript(project.getProviders(), settings, buildFile, project.getProjectDir(), "build script of " + project.getDisplayName());
         }
         boolean hasCompilerRules = settings.rules().stream().anyMatch(RuleSpec::hasCompilerCriteria);
         if (!hasCompilerRules) {
@@ -47,19 +51,40 @@ public final class ConfigureProject implements IsolatedAction<Project> {
         });
     }
 
-    /** Fails if a Kotlin DSL script has more banned lines than the baseline allows (or records them). */
-    public static void checkScript(ProviderFactory providers, CheckSettings settings, File script, String description) {
+    /**
+     * Checks a Kotlin DSL script and the scripts it applies with {@code apply(from = ...)}, recursively: fails
+     * if they have more banned lines than the baseline allows, or records them in update mode.
+     *
+     * @param baseDir the directory {@code apply(from = ...)} paths resolve against
+     */
+    public static void checkScript(ProviderFactory providers, CheckSettings settings, File script, File baseDir, String description) {
         if (settings.rules().stream().noneMatch(r -> r.buildScriptPattern() != null)) {
             return;
         }
-        String text = providers.fileContents(() -> script).getAsText().getOrNull();
-        if (text == null) {
-            return;
+        File rootDir = new File(settings.rootDir());
+        List<Occurrence> occurrences = new ArrayList<>();
+        Set<String> scanned = new LinkedHashSet<>();
+        Map<File, String> queue = new LinkedHashMap<>();
+        queue.put(script.getAbsoluteFile(), description);
+        Set<File> seen = new HashSet<>(queue.keySet());
+        while (!queue.isEmpty()) {
+            File next = queue.keySet().iterator().next();
+            String what = queue.remove(next);
+            String text = providers.fileContents(() -> next).getAsText().getOrNull();
+            if (text == null) {
+                continue;
+            }
+            String relativePath = settings.relativize(next.getAbsolutePath());
+            scanned.add(relativePath);
+            occurrences.addAll(ScriptScanner.scan(text, relativePath, settings.rules()));
+            for (File applied : ApplyFromFinder.find(text, baseDir, rootDir)) {
+                if (seen.add(applied)) {
+                    queue.put(applied, "script " + settings.relativize(applied.getAbsolutePath()) + " applied by " + what);
+                }
+            }
         }
-        String relativePath = settings.relativize(script.getAbsolutePath());
-        List<Occurrence> occurrences = ScriptScanner.scan(text, relativePath, settings.rules());
         if (settings.updateBaseline()) {
-            Baseline.update(settings.baselinePath(), key -> key.path().equals(relativePath), Baseline.count(occurrences));
+            Baseline.update(settings.baselinePath(), key -> scanned.contains(key.path()), Baseline.count(occurrences));
             return;
         }
         if (occurrences.isEmpty()) {

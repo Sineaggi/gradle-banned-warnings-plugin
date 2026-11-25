@@ -8,7 +8,7 @@ import java.util.List;
 import java.util.Map;
 
 /** Everything a project needs to apply the rules; captured once the settings are evaluated. */
-public record CheckSettings(List<RuleSpec> rules, String rootDir, String baselineFile, boolean updateBaseline)
+public record CheckSettings(List<RuleSpec> rules, String rootDir, String userHome, String baselineFile, boolean updateBaseline)
         implements Serializable {
 
     public Map<String, RuleSpec> rulesById() {
@@ -21,20 +21,28 @@ public record CheckSettings(List<RuleSpec> rules, String rootDir, String baselin
         return Paths.get(baselineFile);
     }
 
-    /** The path of a file relative to the build root, with {@code /} separators. */
+    /**
+     * The path of a file relative to the build root, with {@code /} separators. Files outside the build but in
+     * the user's home directory, such as init scripts, start with {@code ~/}.
+     */
     public String relativize(String path) {
         if (path == null) {
             return "<unknown>";
         }
         Path root = Paths.get(rootDir).toAbsolutePath().normalize();
         Path file = Paths.get(path);
+        String prefix = "";
         if (file.isAbsolute()) {
             file = file.normalize();
+            Path home = userHome == null ? null : Paths.get(userHome).toAbsolutePath().normalize();
             if (file.startsWith(root)) {
                 file = root.relativize(file);
+            } else if (home != null && file.startsWith(home)) {
+                file = home.relativize(file);
+                prefix = "~/";
             }
         }
-        return file.toString().replace('\\', '/');
+        return prefix + file.toString().replace('\\', '/');
     }
 
     /** A stable string of the rules, used as a task input. */

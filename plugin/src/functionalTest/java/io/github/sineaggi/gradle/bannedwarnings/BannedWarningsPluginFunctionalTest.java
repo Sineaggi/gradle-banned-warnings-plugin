@@ -269,4 +269,38 @@ class BannedWarningsPluginFunctionalTest {
         // Paths are relative to the root of the build that applies the plugin, here build-logic.
         assertTrue(result.getOutput().contains("[kotlin-dsl-delegated-properties] src/main/kotlin/my-convention.gradle.kts:1: 'val <T : Any, C : NamedDomainObjectContainer<T>> C.registering"), result.getOutput());
     }
+
+    @Test
+    void scansScriptsAppliedWithApplyFrom() throws IOException {
+        settings("kotlinDslDelegatedProperties()", "include(\"sub\")\n");
+        write("sub/build.gradle.kts", "apply(from = \"$rootDir/gradle/shared.gradle.kts\")\n");
+        write("gradle/shared.gradle.kts", "apply(from = isolated.rootProject.projectDirectory.file(\"gradle/nested.gradle.kts\"))\n");
+        write("gradle/nested.gradle.kts", "\nval foo by tasks.registering\n");
+
+        BuildResult result = runner("help").buildAndFail();
+
+        assertTrue(result.getOutput().contains("Banned warnings found in build script of project ':sub'"), result.getOutput());
+        assertTrue(result.getOutput().contains("[kotlin-dsl-delegated-properties] gradle/nested.gradle.kts:2: val foo by tasks.registering"), result.getOutput());
+
+        // Baselined like any other script (Gradle itself still warns about the delegate once it runs).
+        runner("help", "-PbannedWarnings.updateBaseline", "--warning-mode=all").build();
+        String baseline = Files.readString(projectDir.resolve("banned-warnings-baseline.txt"));
+        assertTrue(baseline.contains("kotlin-dsl-delegated-properties\tgradle/nested.gradle.kts\t1"), baseline);
+    }
+
+    @Test
+    void scansInitScripts() throws IOException {
+        settings("kotlinDslDelegatedProperties()", "");
+        // Never called, so only the plugin's scan sees it, not Gradle's own deprecation warning.
+        write("init.gradle.kts", """
+                fun unused(project: Project) {
+                    val foo by project.tasks.registering
+                }
+                """);
+
+        BuildResult result = runner("help", "--init-script", "init.gradle.kts").buildAndFail();
+
+        assertTrue(result.getOutput().contains("Banned warnings found in init script init.gradle.kts"), result.getOutput());
+        assertTrue(result.getOutput().contains("[kotlin-dsl-delegated-properties] init.gradle.kts:2: val foo by project.tasks.registering"), result.getOutput());
+    }
 }

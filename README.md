@@ -9,7 +9,7 @@ It checks three places:
 |---|---|
 | Kotlin compile tasks (`compileKotlin`, precompiled script plugins in `build-logic`/`buildSrc`, ...) | Reads the compiler's warnings from the task output, matched by Kotlin diagnostic name and/or message |
 | Java compile tasks | Reads javac's warnings, matched by `-Xlint` category and/or message |
-| `*.gradle.kts` build and settings scripts | Scans the script source, because Gradle compiles scripts itself and plugins can't see that compiler's output |
+| `*.gradle.kts` build, settings and init scripts, and scripts they apply with `apply(from = ...)` | Scans the script source, because Gradle compiles scripts itself and plugins can't see that compiler's output |
 
 Works with the configuration cache and isolated projects. The functional tests run Gradle 9.9.2 with both turned
 on and `--warning-mode=fail`, and the repository itself builds with Gradle 9.9.2 with both turned on.
@@ -79,4 +79,8 @@ kotlin-dsl-delegated-properties	build.gradle.kts	3
 - With `--quiet`, Gradle hides compiler warnings, so compile tasks are not checked (the plugin says so).
 - The build script scan matches source text, so a rule there needs its own `buildScriptPattern`. String literals
   are scanned; comments are not.
-- Scripts applied with `apply(from = ...)` are not scanned.
+- `apply(from = ...)` is followed only when the path is a string literal, optionally inside `file(...)`,
+  `rootProject.file(...)`, `rootDir.resolve(...)` or `layout.projectDirectory/settingsDirectory.file(...)`, using at
+  most `$rootDir` or `$projectDir`. Computed paths, URLs and Groovy `.gradle` scripts are skipped.
+- Init scripts outside the build are recorded in the baseline as `~/...` paths, so a baseline entry for one only
+  fits machines with the same init script.
